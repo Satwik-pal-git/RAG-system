@@ -69,8 +69,19 @@ export const KnowledgeBase: React.FC = () => {
     showToast('Uploading document', 'info', `Ingesting "${file.name}"...`);
 
     try {
-      await api.uploadDocument(file);
-      showToast('Upload Successful', 'success', `"${file.name}" has been accepted for ingestion.`);
+      const res = await api.uploadDocument(file);
+      if (res.data) {
+        setDocuments((prev) => {
+          const idx = prev.findIndex((d) => d.id === res.data?.id);
+          if (idx !== -1) {
+            const next = [...prev];
+            next[idx] = res.data!;
+            return next;
+          }
+          return [res.data!, ...prev];
+        });
+      }
+      showToast('Document Indexed', 'success', `"${file.name}" indexed successfully into Knowledge Base.`);
       loadDocuments(false);
     } catch (err: any) {
       showToast('Upload failed', 'error', err.message);

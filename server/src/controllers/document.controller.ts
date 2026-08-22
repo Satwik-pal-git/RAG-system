@@ -40,9 +40,9 @@ export const uploadDocument = async (
       size: req.file.size,
     });
 
-    res.status(202).json({
+    res.status(200).json({
       success: true,
-      message: 'Document upload accepted and indexing has started.',
+      message: 'Document uploaded and indexed successfully.',
       data: doc,
       timestamp: new Date().toISOString(),
     });

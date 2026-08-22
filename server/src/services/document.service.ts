@@ -118,16 +118,19 @@ class DocumentService {
       createdAt: new Date().toISOString(),
     };
 
-    // Add immediate status to document list
+    // Add initial record
     this.addOrUpdateDoc(newDoc);
 
-    // Process asynchronously so file upload completes immediately
-    this.processIngestion(newDoc, file.buffer).catch((err) => {
+    try {
+      // Must await on serverless (Vercel) so execution thread is not frozen before embeddings finish
+      await this.processIngestion(newDoc, file.buffer);
+    } catch (err: any) {
       console.error(`[Ingestion] Failed to process document ${newDoc.name}:`, err);
       newDoc.status = 'error';
       newDoc.error = err.message || 'Unknown processing error';
       this.addOrUpdateDoc(newDoc);
-    });
+      throw err;
+    }
 
     return newDoc;
   }
@@ -159,21 +162,27 @@ class DocumentService {
     const textChunks = this.chunkText(rawText);
     console.log(`[Ingestion] Document "${doc.name}" split into ${textChunks.length} chunks.`);
 
-    // Generate embeddings & vector DB records
+    // Generate embeddings in parallel batches (15 chunks at a time) for ultra-fast indexing
+    const BATCH_SIZE = 15;
     const vectorChunks = [];
-    for (let i = 0; i < textChunks.length; i++) {
-      const chunkText = textChunks[i];
-      // Generate embedding vector using free service
-      const vector = await ragService.generateEmbedding(chunkText);
-      
-      vectorChunks.push({
-        id: `${doc.id}_${i}`,
-        docId: doc.id,
-        docName: doc.name,
-        chunkIndex: i,
-        text: chunkText,
-        vector,
-      });
+
+    for (let i = 0; i < textChunks.length; i += BATCH_SIZE) {
+      const batchSlice = textChunks.slice(i, i + BATCH_SIZE);
+      const batchVectors = await Promise.all(
+        batchSlice.map((chunk) => ragService.generateEmbedding(chunk))
+      );
+
+      for (let j = 0; j < batchSlice.length; j++) {
+        const chunkIndex = i + j;
+        vectorChunks.push({
+          id: `${doc.id}_${chunkIndex}`,
+          docId: doc.id,
+          docName: doc.name,
+          chunkIndex,
+          text: batchSlice[j],
+          vector: batchVectors[j],
+        });
+      }
     }
 
     // Insert vectors into DB
@@ -183,7 +192,7 @@ class DocumentService {
     doc.status = 'indexed';
     doc.chunkCount = textChunks.length;
     this.addOrUpdateDoc(doc);
-    console.log(`[Ingestion] Document "${doc.name}" successfully indexed into the Vector Database.`);
+    console.log(`[Ingestion] Document "${doc.name}" successfully indexed (${textChunks.length} chunks).`);
   }
 
   // Delete document and remove all associated vectors from Vector DB
