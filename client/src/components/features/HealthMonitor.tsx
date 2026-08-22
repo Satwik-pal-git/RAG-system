@@ -41,15 +41,6 @@ export const HealthMonitor: React.FC<HealthMonitorProps> = ({ onStatusChange }) 
     return () => clearInterval(interval);
   }, [fetchHealth]);
 
-  const formatUptime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const hours = Math.floor(mins / 60);
-    if (hours > 0) return `${hours}h ${mins % 60}m ${secs}s`;
-    if (mins > 0) return `${mins}m ${secs}s`;
-    return `${secs}s`;
-  };
-
   return (
     <Card className="health-monitor-card" style={{ marginBottom: '2rem' }}>
       <div
@@ -122,7 +113,7 @@ export const HealthMonitor: React.FC<HealthMonitorProps> = ({ onStatusChange }) 
           </div>
         </div>
       ) : (
-        <div className="grid-4">
+        <div className="grid-3">
           <div
             style={{
               padding: '1rem',
@@ -146,25 +137,6 @@ export const HealthMonitor: React.FC<HealthMonitorProps> = ({ onStatusChange }) 
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
               HTTP Round-trip
-            </div>
-          </div>
-
-          <div
-            style={{
-              padding: '1rem',
-              background: 'var(--bg-secondary)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Server Uptime
-            </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem' }}>
-              {health ? formatUptime(health.uptime) : '--'}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              Node Process Lifetime
             </div>
           </div>
 
