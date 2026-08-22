@@ -9,6 +9,9 @@ export interface Config {
   nodeEnv: string;
   corsOrigins: string[];
   isProduction: boolean;
+  pineconeApiKey?: string;
+  pineconeIndex: string;
+  pineconeNamespace?: string;
 }
 
 const rawCors = process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000';
@@ -19,4 +22,7 @@ export const config: Config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   corsOrigins,
   isProduction: process.env.NODE_ENV === 'production',
+  pineconeApiKey: process.env.PINECONE_API_KEY,
+  pineconeIndex: process.env.PINECONE_INDEX || 'rag-index',
+  pineconeNamespace: process.env.PINECONE_NAMESPACE || undefined,
 };

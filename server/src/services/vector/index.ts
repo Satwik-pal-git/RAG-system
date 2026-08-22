@@ -1,9 +1,20 @@
 import { VectorStore } from './base';
 import { localVectorStore } from './localStore';
+import { pineconeVectorStore } from './pineconeStore';
+import { config } from '../../config';
 
-// Expose VectorStore implementation
-// We default to LocalVectorStore to guarantee 100% offline, free operational correctness.
-// If needed in the future, PineconeStore can be conditionally instantiated here.
-export const vectorDb: VectorStore = localVectorStore;
+// Expose active VectorStore implementation
+// If PINECONE_API_KEY is configured, uses PineconeVectorStore; otherwise falls back gracefully to LocalVectorStore.
+const isPineconeConfigured = Boolean(config.pineconeApiKey && config.pineconeApiKey.trim().length > 0);
+
+if (isPineconeConfigured) {
+  console.log(`[VectorDB] Using Pinecone Vector Store (Index: "${config.pineconeIndex || 'rag-index'}").`);
+} else {
+  console.log('[VectorDB] PINECONE_API_KEY not provided. Using Local Vector Store (JSON).');
+}
+
+export const vectorDb: VectorStore = isPineconeConfigured ? pineconeVectorStore : localVectorStore;
 
 export * from './base';
+export * from './localStore';
+export * from './pineconeStore';
