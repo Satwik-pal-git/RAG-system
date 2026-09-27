@@ -12,6 +12,10 @@ export interface Config {
   pineconeApiKey?: string;
   pineconeIndex: string;
   pineconeNamespace?: string;
+  mongodbUri: string;
+  jwtSecret: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
 }
 
 const rawCors = process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:3000';
@@ -25,4 +29,9 @@ export const config: Config = {
   pineconeApiKey: process.env.PINECONE_API_KEY,
   pineconeIndex: process.env.PINECONE_INDEX || 'rag-index',
   pineconeNamespace: process.env.PINECONE_NAMESPACE || undefined,
+  mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/rag_system',
+  jwtSecret: process.env.JWT_SECRET || 'dev_jwt_secret_change_in_production_key_12345',
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
 };
+

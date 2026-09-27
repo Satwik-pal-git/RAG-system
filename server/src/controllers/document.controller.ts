@@ -8,7 +8,16 @@ export const getDocuments = async (
   next: NextFunction
 ) => {
   try {
-    const docs = await documentService.getAll();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required to view documents.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const docs = await documentService.getAll(userId);
     res.status(200).json({
       success: true,
       message: `Retrieved ${docs.length} documents successfully`,
@@ -26,6 +35,15 @@ export const uploadDocument = async (
   next: NextFunction
 ) => {
   try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required to upload documents.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -34,11 +52,14 @@ export const uploadDocument = async (
       });
     }
 
-    const doc = await documentService.ingestFile({
-      originalname: req.file.originalname,
-      buffer: req.file.buffer,
-      size: req.file.size,
-    });
+    const doc = await documentService.ingestFile(
+      {
+        originalname: req.file.originalname,
+        buffer: req.file.buffer,
+        size: req.file.size,
+      },
+      userId
+    );
 
     res.status(200).json({
       success: true,
@@ -58,12 +79,21 @@ export const deleteDocument = async (
 ) => {
   try {
     const { id } = req.params;
-    const deleted = await documentService.delete(id);
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required to delete documents.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const deleted = await documentService.delete(id, userId);
 
     if (!deleted) {
       return res.status(404).json({
         success: false,
-        error: `Document with ID '${id}' not found.`,
+        error: `Document with ID '${id}' not found or access denied.`,
         timestamp: new Date().toISOString(),
       });
     }
@@ -85,7 +115,16 @@ export const resetDocumentStore = async (
   next: NextFunction
 ) => {
   try {
-    await documentService.reset();
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required to reset documents.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    await documentService.reset(userId);
     res.status(200).json({
       success: true,
       message: 'Knowledge base cleared successfully.',

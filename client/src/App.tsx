@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ActiveTab } from './types';
+import { useAuth } from './context/AuthContext';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
 import { HealthMonitor } from './components/features/HealthMonitor';
@@ -11,6 +12,14 @@ import { Badge } from './components/common/Badge';
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [serverStatus, setServerStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const { isAuthenticated, user } = useAuth();
+
+  // Reset to dashboard if user logs out while on a protected tab
+  useEffect(() => {
+    if (!isAuthenticated && activeTab !== 'dashboard') {
+      setActiveTab('dashboard');
+    }
+  }, [isAuthenticated, activeTab]);
 
   return (
     <div className="app-layout">
@@ -37,7 +46,7 @@ export const App: React.FC = () => {
             </p>
           </header>
 
-          {/* Navigation Tabs */}
+          {/* Navigation Tabs - Only show Chat and Knowledge Base when authenticated */}
           <nav className="tab-navigation" aria-label="Template Navigation">
             <button
               className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
@@ -52,26 +61,30 @@ export const App: React.FC = () => {
               Telemetry Dashboard
             </button>
 
-            <button
-              className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
-              onClick={() => setActiveTab('chat')}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-              Semantic Chat Interface
-            </button>
+            {isAuthenticated && (
+              <>
+                <button
+                  className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('chat')}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <span>Semantic Chat</span>
+                </button>
 
-            <button
-              className={`tab-btn ${activeTab === 'documents' ? 'active' : ''}`}
-              onClick={() => setActiveTab('documents')}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-              Knowledge Base
-            </button>
+                <button
+                  className={`tab-btn ${activeTab === 'documents' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('documents')}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <span>Knowledge Base</span>
+                </button>
+              </>
+            )}
           </nav>
 
           {/* Active View */}
@@ -86,7 +99,7 @@ export const App: React.FC = () => {
                     <h3>React Chat Dashboard</h3>
                   </div>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.6 }}>
-                    Modern, responsive conversation UI with memory, thumbs up/down quality feedback, and citation hover displays showing context sources.
+                    Modern, responsive conversation UI with MongoDB memory, thumbs up/down feedback, and citation hover displays.
                   </p>
                 </Card>
 
@@ -102,11 +115,13 @@ export const App: React.FC = () => {
 
                 <Card interactive>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <Badge variant="success">Free APIs</Badge>
-                    <h3>Zero Running Fees</h3>
+                    <Badge variant="success">Authentication</Badge>
+                    <h3>Google OAuth</h3>
                   </div>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.6 }}>
-                    Uses Groq API for completions, Hugging Face Inference API for embeddings, and a JSON local file vector engine.
+                    {isAuthenticated && user
+                      ? `Signed in as ${user.email}. All document uploads and chat history are securely isolated to your account.`
+                      : 'Sign in with your Google account in the top navbar to unlock private document uploads and persistent semantic chat.'}
                   </p>
                 </Card>
               </div>
@@ -114,7 +129,9 @@ export const App: React.FC = () => {
               <Card>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h3>RAG System Specifications</h3>
-                  <Badge variant="info">Ready</Badge>
+                  <Badge variant={isAuthenticated ? 'success' : 'info'}>
+                    {isAuthenticated ? 'Authenticated' : 'Guest Mode'}
+                  </Badge>
                 </div>
                 <div className="grid-2">
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
@@ -123,8 +140,8 @@ export const App: React.FC = () => {
                     <div>🤖 <strong>Generator:</strong> Groq API models (GPT-OSS / Llama).</div>
                   </div>
                   <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-                    <div>🎯 <strong>Grounding Guard:</strong> Restricts model responses strictly to indexed files.</div>
-                    <div>🔒 <strong>PII Guard:</strong> Auto-redacts email addresses, phone numbers, and keys.</div>
+                    <div>🎯 <strong>Context Selector:</strong> Query all documents or a selected file.</div>
+                    <div>🔒 <strong>Session Storage:</strong> Persistent MongoDB chat history &amp; citations.</div>
                     <div>🌐 <strong>Multilingual:</strong> Aligns responses to query language.</div>
                   </div>
                 </div>
@@ -132,9 +149,9 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {activeTab === 'chat' && <ChatInterface />}
+          {activeTab === 'chat' && isAuthenticated && <ChatInterface />}
 
-          {activeTab === 'documents' && <KnowledgeBase />}
+          {activeTab === 'documents' && isAuthenticated && <KnowledgeBase />}
         </div>
       </main>
 

@@ -1,12 +1,18 @@
 import express, { Express } from 'express';
 import cors from 'cors';
+import passport from 'passport';
 import { config } from './config';
+import { configurePassport } from './config/passport';
 import { requestLogger } from './middleware/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import apiRouter from './routes/api.routes';
 
 export const createApp = (): Express => {
   const app = express();
+
+  // Initialize passport strategies
+  configurePassport();
+  app.use(passport.initialize());
 
   // Basic CORS configuration
   app.use(
@@ -29,6 +35,7 @@ export const createApp = (): Express => {
 
   // Logging middleware
   app.use(requestLogger);
+
 
   // Health check at root
   app.get('/', (req, res) => {

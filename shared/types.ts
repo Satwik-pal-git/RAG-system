@@ -88,6 +88,13 @@ export interface Citation {
   text: string;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -95,12 +102,16 @@ export interface ChatMessage {
   timestamp: string;
   citations?: Citation[];
   rating?: 'like' | 'dislike';
+  docFilterApplied?: string | null;
 }
 
 export interface ChatSession {
   id: string;
   title: string;
-  messages: ChatMessage[];
+  selectedDocId?: string | null;
+  messageCount?: number;
+  lastMessageAt?: string;
+  messages?: ChatMessage[];
   createdAt: string;
 }
 
@@ -108,4 +119,5 @@ export interface FeedbackDto {
   messageId: string;
   rating: 'like' | 'dislike';
 }
+
 

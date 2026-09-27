@@ -1,5 +1,8 @@
 import React from 'react';
+import { GoogleLogin } from '@react-oauth/google';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { Button } from '../common/Button';
 
 interface NavbarProps {
@@ -8,6 +11,25 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ serverStatus }) => {
   const { theme, toggleTheme } = useTheme();
+  const { user, isAuthenticated, loginWithGoogle, loginWithGoogleRedirect, logout } = useAuth();
+  const { showToast } = useToast();
+
+
+  const handleGoogleSuccess = async (credentialResponse: any) => {
+    if (credentialResponse.credential) {
+      try {
+        await loginWithGoogle(credentialResponse.credential);
+        showToast('Signed in successfully', 'success', 'Welcome to your RAG Knowledge workspace!');
+      } catch (err: any) {
+        showToast('Login Failed', 'error', err.message || 'Could not verify Google credentials.');
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    showToast('Logged out', 'info', 'You are now in guest mode.');
+  };
 
   return (
     <nav className="navbar">
@@ -66,6 +88,82 @@ export const Navbar: React.FC<NavbarProps> = ({ serverStatus }) => {
             </span>
           </div>
 
+          {/* User Profile / Google Sign-in */}
+          {isAuthenticated && user ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.25rem 0.6rem',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-full)',
+                }}
+              >
+                {user.avatarUrl ? (
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    style={{ width: '24px', height: '24px', borderRadius: '50%' }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: 'var(--primary)',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span
+                  style={{
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    color: 'var(--text-primary)',
+                    maxWidth: '120px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={user.email}
+                >
+                  {user.name}
+                </span>
+              </div>
+              <Button variant="secondary" size="sm" onClick={handleLogout} title="Sign Out">
+                Logout
+              </Button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ transform: 'scale(0.88)', transformOrigin: 'right center' }}>
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => {
+                    // Fallback to OAuth redirect flow
+                    showToast('Opening Google Sign-In redirect...', 'info');
+                    loginWithGoogleRedirect();
+                  }}
+                  shape="pill"
+                  size="medium"
+                  text="signin_with"
+                />
+              </div>
+            </div>
+          )}
+
+
           {/* Theme Switcher Button */}
           <Button
             variant="icon"
@@ -74,7 +172,6 @@ export const Navbar: React.FC<NavbarProps> = ({ serverStatus }) => {
             aria-label="Toggle Theme"
           >
             {theme === 'dark' ? (
-              // Sun icon
               <svg
                 width="18"
                 height="18"
@@ -96,7 +193,6 @@ export const Navbar: React.FC<NavbarProps> = ({ serverStatus }) => {
                 <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
               </svg>
             ) : (
-              // Moon icon
               <svg
                 width="18"
                 height="18"

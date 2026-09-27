@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';
 import { Document, DocumentStatus } from '../types';
+import { DocumentModel } from '../models';
 import { vectorDb } from './vector';
 import { ragService } from './rag.service';
 
@@ -11,7 +12,7 @@ const DATA_DIR = process.env.VERCEL
 const FILE_PATH = path.join(DATA_DIR, 'documents.json');
 
 class DocumentService {
-  private documents: Document[] = [];
+  private fallbackDocs: (Document & { userId?: string })[] = [];
 
   constructor() {
     this.ensureDataDirectory();
@@ -28,38 +29,74 @@ class DocumentService {
     try {
       if (fs.existsSync(FILE_PATH)) {
         const content = fs.readFileSync(FILE_PATH, 'utf-8');
-        this.documents = JSON.parse(content);
+        this.fallbackDocs = JSON.parse(content);
       } else {
-        this.documents = [];
-        this.saveToFile();
+        this.fallbackDocs = [];
       }
-    } catch (err) {
-      console.error('[DocumentService] Error reading documents database:', err);
-      this.documents = [];
+    } catch {
+      this.fallbackDocs = [];
     }
   }
 
   private saveToFile() {
     try {
       this.ensureDataDirectory();
-      fs.writeFileSync(FILE_PATH, JSON.stringify(this.documents, null, 2), 'utf-8');
+      fs.writeFileSync(FILE_PATH, JSON.stringify(this.fallbackDocs, null, 2), 'utf-8');
     } catch (err) {
-      console.error('[DocumentService] Error saving documents database:', err);
+      console.error('[DocumentService] Error saving fallback documents:', err);
     }
   }
 
-  // Get list of all documents
-  async getAll(): Promise<Document[]> {
-    return this.documents;
+  // Get list of documents strictly isolated by userId
+  async getAll(userId: string): Promise<Document[]> {
+    try {
+      const docs = await DocumentModel.find({ userId }).sort({ createdAt: -1 }).lean();
+      if (docs && docs.length > 0) {
+        return docs.map((d: any) => ({
+          id: d._id,
+          name: d.name,
+          size: d.size,
+          type: d.type,
+          chunkCount: d.chunkCount || 0,
+          status: d.status,
+          error: d.error,
+          createdAt: d.createdAt ? new Date(d.createdAt).toISOString() : new Date().toISOString(),
+        }));
+      }
+    } catch (err: any) {
+      console.warn('[DocumentService] MongoDB query failed, falling back to memory storage:', err.message);
+    }
+
+    return this.fallbackDocs.filter((d) => d.userId === userId);
   }
 
-  // Add document record
-  private addOrUpdateDoc(doc: Document) {
-    const idx = this.documents.findIndex((d) => d.id === doc.id);
+  // Add or update document record in DB strictly scoped to userId
+  private async addOrUpdateDoc(doc: Document, userId: string) {
+    try {
+      await DocumentModel.findByIdAndUpdate(
+        doc.id,
+        {
+          _id: doc.id,
+          userId,
+          name: doc.name,
+          size: doc.size,
+          type: doc.type,
+          chunkCount: doc.chunkCount,
+          status: doc.status,
+          error: doc.error,
+        },
+        { upsert: true, new: true }
+      );
+    } catch (err: any) {
+      console.warn('[DocumentService] MongoDB upsert failed, saving to local fallback:', err.message);
+    }
+
+    const idx = this.fallbackDocs.findIndex((d) => d.id === doc.id);
+    const docWithUser = { ...doc, userId };
     if (idx !== -1) {
-      this.documents[idx] = doc;
+      this.fallbackDocs[idx] = docWithUser;
     } else {
-      this.documents.push(doc);
+      this.fallbackDocs.push(docWithUser);
     }
     this.saveToFile();
   }
@@ -76,16 +113,15 @@ class DocumentService {
 
     while (start < cleanText.length) {
       let end = start + chunkSize;
-      
-      // Try to align to sentence boundary (period, question mark, or exclamation mark)
+
+      // Try to align to sentence boundary
       if (end < cleanText.length) {
         const lastSentenceBoundary = Math.max(
           cleanText.lastIndexOf('. ', end),
           cleanText.lastIndexOf('? ', end),
           cleanText.lastIndexOf('! ', end)
         );
-        
-        // If boundary is close to the end of chunk (within 150 chars), align to it
+
         if (lastSentenceBoundary > start + chunkSize - 150) {
           end = lastSentenceBoundary + 1;
         }
@@ -93,18 +129,20 @@ class DocumentService {
 
       chunks.push(cleanText.slice(start, end).trim());
       start = end - overlap;
-      
-      // Safety guard against infinite loops
+
       if (overlap >= chunkSize) {
         start = end;
       }
     }
 
-    return chunks.filter(c => c.length > 20); // Filter out trivial noise
+    return chunks.filter((c) => c.length > 20);
   }
 
-  // Ingest file: reads, chunks, embeds, and indexes into the vector db
-  async ingestFile(file: { originalname: string; buffer: Buffer; size: number }): Promise<Document> {
+  // Ingest file: reads, chunks, embeds, and indexes into the vector db strictly with userId
+  async ingestFile(
+    file: { originalname: string; buffer: Buffer; size: number },
+    userId: string
+  ): Promise<Document> {
     const docId = Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
     const docType = file.originalname.endsWith('.pdf') ? 'pdf' : 'txt';
 
@@ -119,27 +157,27 @@ class DocumentService {
     };
 
     // Add initial record
-    this.addOrUpdateDoc(newDoc);
+    await this.addOrUpdateDoc(newDoc, userId);
 
     try {
-      // Must await on serverless (Vercel) so execution thread is not frozen before embeddings finish
-      await this.processIngestion(newDoc, file.buffer);
+      await this.processIngestion(newDoc, file.buffer, userId);
     } catch (err: any) {
       console.error(`[Ingestion] Failed to process document ${newDoc.name}:`, err);
       newDoc.status = 'error';
       newDoc.error = err.message || 'Unknown processing error';
-      this.addOrUpdateDoc(newDoc);
+      await this.addOrUpdateDoc(newDoc, userId);
       throw err;
     }
 
     return newDoc;
   }
 
-  private async processIngestion(doc: Document, buffer: Buffer): Promise<void> {
+  private async processIngestion(doc: Document, buffer: Buffer, userId: string): Promise<void> {
     let rawText = '';
 
     if (doc.type === 'pdf') {
-      const parseFn: any = typeof pdfParse === 'function' ? pdfParse : (pdfParse as any).default || (pdfParse as any);
+      const parseFn: any =
+        typeof pdfParse === 'function' ? pdfParse : (pdfParse as any).default || (pdfParse as any);
       if (typeof parseFn === 'function') {
         const parsedPdf = await parseFn(buffer);
         rawText = parsedPdf.text;
@@ -160,9 +198,9 @@ class DocumentService {
 
     // Split text into semantic chunks
     const textChunks = this.chunkText(rawText);
-    console.log(`[Ingestion] Document "${doc.name}" split into ${textChunks.length} chunks.`);
+    console.log(`[Ingestion] Document "${doc.name}" for user "${userId}" split into ${textChunks.length} chunks.`);
 
-    // Generate embeddings in parallel batches (15 chunks at a time) for ultra-fast indexing
+    // Generate embeddings in parallel batches (15 chunks at a time)
     const BATCH_SIZE = 15;
     const vectorChunks = [];
 
@@ -181,40 +219,53 @@ class DocumentService {
           chunkIndex,
           text: batchSlice[j],
           vector: batchVectors[j],
+          userId,
         });
       }
     }
 
-    // Insert vectors into DB
+    // Insert vectors into DB with strict userId metadata
     await vectorDb.upsert(vectorChunks);
 
     // Update document metadata record
     doc.status = 'indexed';
     doc.chunkCount = textChunks.length;
-    this.addOrUpdateDoc(doc);
-    console.log(`[Ingestion] Document "${doc.name}" successfully indexed (${textChunks.length} chunks).`);
+    await this.addOrUpdateDoc(doc, userId);
+    console.log(`[Ingestion] Document "${doc.name}" for user "${userId}" successfully indexed (${textChunks.length} chunks).`);
   }
 
-  // Delete document and remove all associated vectors from Vector DB
-  async delete(id: string): Promise<boolean> {
-    const initialCount = this.documents.length;
-    this.documents = this.documents.filter((doc) => doc.id !== id);
-
-    if (this.documents.length < initialCount) {
-      this.saveToFile();
-      // Remove vectors from VectorDB
-      await vectorDb.deleteByDocId(id);
-      return true;
+  // Delete document strictly for matching userId
+  async delete(id: string, userId: string): Promise<boolean> {
+    let deletedFromDb = false;
+    try {
+      const res = await DocumentModel.deleteOne({ _id: id, userId });
+      deletedFromDb = res.deletedCount > 0;
+    } catch (err: any) {
+      console.warn('[DocumentService] MongoDB delete error:', err.message);
     }
 
-    return false;
+    const initialCount = this.fallbackDocs.length;
+    this.fallbackDocs = this.fallbackDocs.filter((doc) => !(doc.id === id && doc.userId === userId));
+    if (this.fallbackDocs.length < initialCount) {
+      this.saveToFile();
+    }
+
+    // Remove vectors strictly for this document and user
+    await vectorDb.deleteByDocId(id, userId);
+    return deletedFromDb || this.fallbackDocs.length < initialCount;
   }
 
-  // Reset database (clears docs and vectors)
-  async reset(): Promise<void> {
-    this.documents = [];
+  // Reset database strictly for this user
+  async reset(userId: string): Promise<void> {
+    try {
+      await DocumentModel.deleteMany({ userId });
+    } catch (err: any) {
+      console.warn('[DocumentService] MongoDB reset error:', err.message);
+    }
+
+    this.fallbackDocs = this.fallbackDocs.filter((doc) => doc.userId !== userId);
     this.saveToFile();
-    await vectorDb.reset();
+    await vectorDb.reset(userId);
   }
 }
 

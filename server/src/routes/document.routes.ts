@@ -6,8 +6,13 @@ import {
   deleteDocument,
   resetDocumentStore,
 } from '../controllers/document.controller';
+import { requireAuth } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Protect all document routes: only authenticated users can view, upload, delete documents
+router.use(requireAuth);
+
 
 // Configure Multer for in-memory temporary storage
 const storage = multer.memoryStorage();
@@ -16,10 +21,10 @@ const upload = multer({
   limits: {
     fileSize: 10 * 1024 * 1024, // Limit files to 10MB
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const isTxt = file.mimetype === 'text/plain' || file.originalname.endsWith('.txt');
     const isPdf = file.mimetype === 'application/pdf' || file.originalname.endsWith('.pdf');
-    
+
     if (isTxt || isPdf) {
       cb(null, true);
     } else {

@@ -7,6 +7,8 @@ import {
   UpdateItemDto,
   Document,
   ChatMessage,
+  ChatSession,
+  UserProfile,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL
@@ -17,10 +19,14 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     const url = `${API_BASE}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
-    // Set headers unless we are uploading multipart Form Data (which sets boundary automatically)
+    // Get auth token from storage if available
+    const token = localStorage.getItem('rag_auth_token');
+
+    // Set headers
     const isFormData = options.body instanceof FormData;
     const headers: HeadersInit = {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     };
 
@@ -41,6 +47,18 @@ class ApiClient {
       console.error(`API Error on [${options.method || 'GET'} ${url}]:`, error);
       throw error;
     }
+  }
+
+  // Authentication API
+  async authGoogle(credential: string): Promise<ApiResponse<{ token: string; user: UserProfile }>> {
+    return this.request<{ token: string; user: UserProfile }>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+  }
+
+  async getAuthMe(): Promise<ApiResponse<UserProfile>> {
+    return this.request<UserProfile>('/auth/me');
   }
 
   // Health and Metadata
@@ -120,11 +138,37 @@ class ApiClient {
     });
   }
 
-  // RAG Chat API
-  async chat(message: string, history: ChatMessage[]): Promise<ApiResponse<{ response: string; citations: any[] }>> {
-    return this.request<{ response: string; citations: any[] }>('/chat', {
+  // RAG Chat & Session API
+  async getChatSessions(): Promise<ApiResponse<ChatSession[]>> {
+    return this.request<ChatSession[]>('/chat/sessions');
+  }
+
+  async createChatSession(title?: string, selectedDocId?: string): Promise<ApiResponse<ChatSession>> {
+    return this.request<ChatSession>('/chat/sessions', {
       method: 'POST',
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({ title, selectedDocId }),
+    });
+  }
+
+  async getSessionMessages(sessionId: string): Promise<ApiResponse<ChatMessage[]>> {
+    return this.request<ChatMessage[]>(`/chat/sessions/${sessionId}`);
+  }
+
+  async deleteChatSession(sessionId: string): Promise<ApiResponse<null>> {
+    return this.request<null>(`/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async chat(
+    message: string,
+    history: ChatMessage[],
+    sessionId?: string,
+    selectedDocId?: string | null
+  ): Promise<ApiResponse<{ response: string; citations: any[]; sessionId: string }>> {
+    return this.request<{ response: string; citations: any[]; sessionId: string }>('/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, history, sessionId, selectedDocId }),
     });
   }
 
@@ -137,4 +181,3 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
-

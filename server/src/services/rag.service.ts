@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { vectorDb } from './vector';
+import { VectorQueryFilter } from './vector/base';
 import { ChatMessage, Citation } from '../types';
 
 export class RagService {
@@ -70,7 +71,7 @@ export class RagService {
           return vector;
         }
       }
-    } catch (err) {
+    } catch {
       // Fall through to fast local deterministic vector generator (< 0.5ms)
     }
 
@@ -82,25 +83,28 @@ export class RagService {
       vector[index] = (vector[index] + text.charCodeAt(i)) % 100;
     }
     const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-    const normalized = magnitude === 0 ? vector : vector.map(v => v / magnitude);
+    const normalized = magnitude === 0 ? vector : vector.map((v) => v / magnitude);
 
     this.embeddingCache.set(cacheKey, normalized);
     return normalized;
   }
 
-  // Perform Semantic Search + Groq Completion with latency optimization
+  // Perform Semantic Search + Groq Completion with latency optimization and doc filtering
   async answerQuery(
     query: string,
-    history: ChatMessage[]
+    history: ChatMessage[],
+    filter?: VectorQueryFilter
   ): Promise<{ content: string; citations: Citation[] }> {
     // 1. Generate query embedding (cached or fast fallback)
     const queryVector = await this.generateEmbedding(query);
 
-    // 2. Query Vector DB with pre-normalized fast dot-product search (< 1ms)
-    const matches = await vectorDb.query(queryVector, 4);
-    const validMatches = matches.filter(m => m.score > 0.05);
+    // 2. Query Vector DB with optional docId and userId filtering
+    const matches = await vectorDb.query(queryVector, 4, filter);
+    const validMatches = matches.filter((m) => m.score > 0.05);
 
-    const contextTexts = validMatches.map((m) => `[Document: ${m.chunk.docName}] ${m.chunk.text}`).join('\n\n');
+    const contextTexts = validMatches
+      .map((m) => `[Document: ${m.chunk.docName}] ${m.chunk.text}`)
+      .join('\n\n');
 
     const citations: Citation[] = validMatches.map((m) => ({
       docId: m.chunk.docId,
@@ -109,12 +113,17 @@ export class RagService {
       text: m.chunk.text,
     }));
 
-    // 3. Compact and concise system prompt to minimize Time-To-First-Token
+    // 3. System prompt strictly grounding response in provided context
+    const filterNotice = filter?.docId
+      ? `NOTE: The user has restricted search context specifically to document ID: ${filter.docId}.`
+      : 'NOTE: Context is drawn across all uploaded documents.';
+
     const systemPrompt = `You are a helpful knowledge assistant.
 Use ONLY the provided document context to answer the user's question.
+${filterNotice}
 
 CONSTRAINTS:
-1. Ground answers strictly in the context. If absent, state: "I couldn't find the answer in the uploaded documents."
+1. Ground answers strictly in the context. If absent, state: "I couldn't find the answer in the provided document context."
 2. Match the language of the user's query.
 3. Automatically redact PII (replace emails with [EMAIL], phones with [PHONE], credentials with [REDACTED]).
 
