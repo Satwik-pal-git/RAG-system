@@ -25,17 +25,51 @@ export class RagService {
     }
   }
 
-  // Generate Embeddings with in-memory caching and low-latency failover timeout
-  async generateEmbedding(text: string): Promise<number[]> {
-    const cacheKey = text.trim().toLowerCase();
-    if (this.embeddingCache.has(cacheKey)) {
-      return this.embeddingCache.get(cacheKey)!;
+  private setCache(key: string, vector: number[]) {
+    if (this.embeddingCache.size > 1000) {
+      const firstKey = this.embeddingCache.keys().next().value;
+      if (firstKey) this.embeddingCache.delete(firstKey);
+    }
+    this.embeddingCache.set(key, vector);
+  }
+
+  // Deterministic 384-dimensional vector fallback (< 0.1ms)
+  private generateDeterministicVector(text: string): number[] {
+    const dimensions = 384;
+    const vector = new Array(dimensions).fill(0);
+    for (let i = 0; i < text.length; i++) {
+      const index = (i * 7) % dimensions;
+      vector[index] = (vector[index] + text.charCodeAt(i)) % 100;
+    }
+    const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+    return magnitude === 0 ? vector : vector.map((v) => v / magnitude);
+  }
+
+  // Generate Embeddings in batches to minimize HTTP requests and eliminate timeouts
+  async generateEmbeddings(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) return [];
+
+    const results: (number[] | null)[] = new Array(texts.length).fill(null);
+    const missingIndices: number[] = [];
+    const missingTexts: string[] = [];
+
+    texts.forEach((t, idx) => {
+      const cacheKey = t.trim().toLowerCase();
+      if (this.embeddingCache.has(cacheKey)) {
+        results[idx] = this.embeddingCache.get(cacheKey)!;
+      } else {
+        missingIndices.push(idx);
+        missingTexts.push(t.slice(0, 1000));
+      }
+    });
+
+    if (missingTexts.length === 0) {
+      return results as number[][];
     }
 
     try {
-      // 800ms abort controller to prevent long network delays if remote API is cold
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 800);
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
 
       const response = await fetch(
         'https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2',
@@ -45,48 +79,46 @@ export class RagService {
             'Content-Type': 'application/json',
             ...(process.env.HF_API_TOKEN ? { Authorization: `Bearer ${process.env.HF_API_TOKEN}` } : {}),
           },
-          body: JSON.stringify({ inputs: text.slice(0, 1000) }),
+          body: JSON.stringify({ inputs: missingTexts }),
           signal: controller.signal,
         }
       );
       clearTimeout(timeoutId);
 
       if (response.ok) {
-        const result = await response.json();
-        let vector: number[] | null = null;
-
-        if (Array.isArray(result) && typeof result[0] === 'number') {
-          vector = result as number[];
-        } else if (Array.isArray(result) && Array.isArray(result[0])) {
-          vector = result[0] as number[];
-        }
-
-        if (vector) {
-          // Cache vector in memory
-          if (this.embeddingCache.size > 500) {
-            const firstKey = this.embeddingCache.keys().next().value;
-            if (firstKey) this.embeddingCache.delete(firstKey);
-          }
-          this.embeddingCache.set(cacheKey, vector);
-          return vector;
+        const data = await response.json();
+        // Hugging Face returns number[][] when inputs is string[]
+        if (Array.isArray(data) && Array.isArray(data[0]) && typeof data[0][0] === 'number') {
+          data.forEach((vec: number[], i: number) => {
+            const origIdx = missingIndices[i];
+            const textKey = texts[origIdx].trim().toLowerCase();
+            this.setCache(textKey, vec);
+            results[origIdx] = vec;
+          });
         }
       }
     } catch {
-      // Fall through to fast local deterministic vector generator (< 0.5ms)
+      // Fall through to deterministic generator
     }
 
-    // High-performance deterministic local fallback vector generator (< 0.5ms)
-    const dimensions = 384;
-    const vector = new Array(dimensions).fill(0);
-    for (let i = 0; i < text.length; i++) {
-      const index = (i * 7) % dimensions;
-      vector[index] = (vector[index] + text.charCodeAt(i)) % 100;
-    }
-    const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-    const normalized = magnitude === 0 ? vector : vector.map((v) => v / magnitude);
+    // Fill any missing with deterministic fallback
+    missingIndices.forEach((origIdx) => {
+      if (!results[origIdx]) {
+        const text = texts[origIdx];
+        const vec = this.generateDeterministicVector(text);
+        const textKey = text.trim().toLowerCase();
+        this.setCache(textKey, vec);
+        results[origIdx] = vec;
+      }
+    });
 
-    this.embeddingCache.set(cacheKey, normalized);
-    return normalized;
+    return results as number[][];
+  }
+
+  // Generate Single Embedding
+  async generateEmbedding(text: string): Promise<number[]> {
+    const embeddings = await this.generateEmbeddings([text]);
+    return embeddings[0];
   }
 
   // Perform Semantic Search + Groq Completion with latency optimization and doc filtering

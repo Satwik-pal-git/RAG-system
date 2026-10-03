@@ -1,11 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import passport from 'passport';
 import jwt from 'jsonwebtoken';
-import { googleLogin, getMe } from '../controllers/auth.controller';
+import { googleLogin, getMe, getAuthConfig } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { config } from '../config';
 
 const router = Router();
+
+
+// Public auth configuration (e.g. public Google Client ID)
+router.get('/config', getAuthConfig);
+
 
 // 1. Passport OAuth Redirect Flow
 router.get(

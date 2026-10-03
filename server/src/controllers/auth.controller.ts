@@ -99,7 +99,7 @@ export const googleLogin = async (
             lastLoginAt: new Date(),
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       );
     } catch (dbErr: any) {
       console.error('[Auth] MongoDB User upsert error:', dbErr.message);
@@ -168,3 +168,18 @@ export const getMe = async (
     next(error);
   }
 };
+
+export const getAuthConfig = async (
+  _req: Request,
+  res: Response<ApiResponse<{ googleClientId: string | null }>>
+) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      googleClientId: config.googleClientId || null,
+    },
+    timestamp: new Date().toISOString(),
+  });
+};
+
+

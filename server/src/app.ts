@@ -5,6 +5,7 @@ import { config } from './config';
 import { configurePassport } from './config/passport';
 import { requestLogger } from './middleware/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { connectDatabase } from './config/db';
 import apiRouter from './routes/api.routes';
 
 export const createApp = (): Express => {
@@ -32,6 +33,16 @@ export const createApp = (): Express => {
   // Body parsers
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Ensure DB connection for serverless invocations
+  app.use(async (_req, _res, next) => {
+    try {
+      await connectDatabase();
+    } catch {
+      // Non-blocking fallback
+    }
+    next();
+  });
 
   // Logging middleware
   app.use(requestLogger);

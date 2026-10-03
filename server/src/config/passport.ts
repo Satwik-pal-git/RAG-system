@@ -35,7 +35,7 @@ export const configurePassport = () => {
                   lastLoginAt: new Date(),
                 },
               },
-              { upsert: true, new: true, setDefaultsOnInsert: true }
+              { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
             );
 
             return done(null, {

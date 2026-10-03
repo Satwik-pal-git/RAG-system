@@ -85,7 +85,7 @@ class DocumentService {
           status: doc.status,
           error: doc.error,
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: 'after' }
       );
     } catch (err: any) {
       console.warn('[DocumentService] MongoDB upsert failed, saving to local fallback:', err.message);
@@ -200,15 +200,13 @@ class DocumentService {
     const textChunks = this.chunkText(rawText);
     console.log(`[Ingestion] Document "${doc.name}" for user "${userId}" split into ${textChunks.length} chunks.`);
 
-    // Generate embeddings in parallel batches (15 chunks at a time)
-    const BATCH_SIZE = 15;
+    // Generate embeddings in batch (30 chunks per batch request to Hugging Face)
+    const BATCH_SIZE = 30;
     const vectorChunks = [];
 
     for (let i = 0; i < textChunks.length; i += BATCH_SIZE) {
       const batchSlice = textChunks.slice(i, i + BATCH_SIZE);
-      const batchVectors = await Promise.all(
-        batchSlice.map((chunk) => ragService.generateEmbedding(chunk))
-      );
+      const batchVectors = await ragService.generateEmbeddings(batchSlice);
 
       for (let j = 0; j < batchSlice.length; j++) {
         const chunkIndex = i + j;
